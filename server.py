@@ -1,5 +1,6 @@
 #  coding: utf-8 
 import socketserver
+import os
 
 # Copyright 2013 Abram Hindle, Eddie Antonio Santos
 # 
@@ -28,11 +29,61 @@ import socketserver
 
 
 class MyWebServer(socketserver.BaseRequestHandler):
-    
     def handle(self):
         self.data = self.request.recv(1024).strip()
-        print ("Got a request of: %s\n" % self.data)
+        # print("Got a request of: %s\n" % self.data)
+        request = self.data.decode('utf-8').split()
+        if len(request) > 2:
+            self.method, self.address = request[0], request[1]
+            # check request should used
+            if self.method != 'GET':
+                self._405_()
+            else:
+                self.path = os.path.abspath("www") + self.address
+                if os.path.isdir(self.path):
+                    if not self.path.endswith('/'):
+                        self.path += '/'
+                        self.address += '/'
+                        self._301_(self.address)
+                    self.path += "index.html"
+                    if os.path.exists(self.path):
+                        self._200_("text/html", self.path)
+                    else:
+                        self._404_()
+
+                elif os.path.isfile(self.path):
+                    # check mime type
+                    if self.path.endswith(".html"):
+                        self._200_('text/html', self.path)
+                    elif self.path.endswith(".css"):
+                        self._200_('text/css', self.path)
+                    else:
+                        self._404_()
+                else:
+                    self._404_()
+        else:
+            raise ValueError("Invalid Request")
+
         self.request.sendall(bytearray("OK",'utf-8'))
+
+    def _200_(self, content_type, path):
+        header = 'HTTP/1.1 200 OK\r\n' + 'Content-Type: ' + content_type + '\r\n'
+        file = open(path)
+        response = file.read()
+        file.close()
+        self.request.sendall((header + "\r\n" + response).encode('utf8'))
+
+    def _301_(self, path):
+        header = 'HTTP/1.1 301 MOVED PERMANENTLY\r\n' + "Location: " + path + "\r\n"
+        self.request.sendall(header.encode('utf8'))
+
+    def _404_(self):
+        # Not Found
+        self.request.sendall("HTTP/1.1 404 Not Found\r\n\r\n<html><body><h3>404 File not found</h3></body</html>".encode('utf8'))
+
+    def _405_(self):
+        self.request.sendall('HTTP/1.1 405 Method Not Allowed\r\n'.encode('utf8'))
+
 
 if __name__ == "__main__":
     HOST, PORT = "localhost", 8080
